@@ -116,6 +116,7 @@
       };
       this._votes = new Map();
       this._actions = new Map();
+      this._nightFinished = new Set();
       this._concealed = null;
       this.nightResult = null;
       this._verdict = null;
@@ -271,12 +272,12 @@
             : 7,
           night: this.settings.night,
           resolve: this._resolveDuration || 3.6,
-          morning: 9,
+          morning: 3,
           end: 9999,
         }[phase] || 0;
       if (phase === "day")
         this.state.addLog(
-          `Day ${this.state.day}. The council is open.`,
+          `Day ${Math.max(1,this.state.day-1)}. The council is open.`,
           "system",
         );
       if (phase === "vote") {
@@ -294,6 +295,7 @@
       }
       if (phase === "night") {
         this._actions.clear();
+        this._nightFinished.clear();
         this._verdict = null;
         this._concealed = null;
         this.nightResult = null;
@@ -348,7 +350,7 @@
       if (this.paused) return "The match is paused.";
       switch (s.phase) {
         case "reveal":
-          this._setPhase("day");
+          this._setPhase("night");
           break;
         case "day":
           this._setPhase("vote");
@@ -433,7 +435,7 @@
               phase === "reveal" &&
               this.members.every((m) => m.connected && m.ready)
             )
-              this._setPhase("day");
+              this._setPhase("night");
           }
           break;
         case "settings": {
@@ -501,10 +503,34 @@
             break;
           }
           this._votes.set(p.id, { actor: p.id, target });
+          if (this.state.players.every((q) => !q.alive || this._votes.has(q.id)))
+            error = this._advance();
           break;
         }
+        case "finish-night":
+          if (phase !== "night" || !p?.alive || this.paused)
+            error = "Night actions are closed.";
+          else if (this._nightFinished.has(p.id))
+            error = "Your night is already finished.";
+          else {
+            this._nightFinished.add(p.id);
+            // Disconnected living seats retain their turn until they reconnect
+            // or the bounded phase timer expires; leaving cannot force results.
+            if (
+              this.state.players.every(
+                (q) => !q.alive || this._nightFinished.has(q.id),
+              )
+            )
+              error = this._advance();
+          }
+          break;
         case "night": {
-          if (phase !== "night" || !p?.alive || this.paused) {
+          if (
+            phase !== "night" ||
+            !p?.alive ||
+            this.paused ||
+            this._nightFinished.has(p.id)
+          ) {
             error = "Night actions are closed.";
             break;
           }
@@ -586,6 +612,7 @@
           this.nightResult = null;
           this._votes.clear();
           this._actions.clear();
+          this._nightFinished.clear();
           this._seats.clear();
           this.members = this.members.filter((m) => !this._kicked.has(m.id));
           this.members.forEach((m) => {
@@ -642,6 +669,8 @@
     snapshot(memberId) {
       const member = this._member(memberId);
       if (!member) return null;
+      const publicState = this._concealed || this.state;
+      const living = publicState?.players.filter((p) => p.alive);
       const packet = {
         type: "snapshot",
         seq: this.seq,
@@ -660,6 +689,10 @@
           })),
           settings: copy(this.settings),
           phase: this._phase(),
+          aliveCount: living ? living.length : this.members.length,
+          finishedCount: living
+            ? living.filter((p) => this._nightFinished.has(p.id)).length
+            : 0,
         },
         visibleVotes: [],
         sceneElapsed: 0,
@@ -747,6 +780,7 @@
         })),
         noDeath: s.noDeath,
         ready: member.ready,
+        nightFinished: this._nightFinished.has(m.own),
         ownVote: this._votes.has(m.own) ? ballot(this._votes.get(m.own)) : null,
         ownActions: [...this._actions.values()]
           .filter((a) => a.actor === m.own)
@@ -775,7 +809,7 @@
               ]
             : [],
       );
-      if (this.state.phase === "night" && own.alive)
+      if (this.state.phase === "night" && own.alive && !view.nightFinished)
         for (const mode of ["ability", "kill", "plant"]) {
           if (
             (mode === "kill" && own.faction !== "impostors") ||

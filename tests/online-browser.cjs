@@ -59,6 +59,8 @@ const server = http.createServer((req, res) => {
     await page.goto("http://127.0.0.1:" + server.address().port);
     await page.waitForTimeout(300);
     if (errors.length) console.log(errors);
+    assert.equal(await page.locator('.entrance-panel').count(),1,'the game should open on the new village entrance');
+    assert.equal(await page.evaluate(()=>testEngine.scene.constructor.name),'LanternSceneRenderer');
     assert.equal(
       await page.locator('[data-act="create-room"]').count(),
       1,

@@ -287,13 +287,18 @@
       L.refresh(ui.root);
     }
     makeNetwork() {
-      const network = new RoomNetwork({
+      const NetworkClass = window.LANTERN_NETWORK_CONFIG?.transport !== "webrtc" && window.LanternRelayNetwork && window.LANTERN_NETWORK_CONFIG?.relayUrl ? window.LanternRelayNetwork.RelayRoomNetwork : RoomNetwork;
+      const network = new NetworkClass({
         peerOptions: window.LANTERN_NETWORK_CONFIG?.peerOptions || {},
         onStatus: (status, error) => {
           if (network !== this.network) return;
           this.connectionStatus = status;
           if (status === "error") this.failure(error);
-          if (status === "disconnected" && this.room) this.lost();
+          if (status === "disconnected" && this.room) {
+            if (error?.code === "host-disconnected" && error.status === 410)
+              this.leave("The host left. This room has ended.");
+            else this.lost();
+          }
         },
         onJoin: (connectionId, hello) => {
           try {
@@ -401,7 +406,7 @@
       else if (!this.busy) this.home();
     }
     lost() {
-      if (this.authority) return;
+      if (this.authority) {this.leave("The room service disconnected. This room has ended.");return;}
       this.e.paused = true;
       this.connectionLost = true;
       const ui = this.e.ui;
@@ -478,18 +483,10 @@
       );
       view.players.forEach((p) => {
         const previous = old?.player(p.id);
-        Object.assign(
-          p,
-          {
-            x: previous?.x || 720,
-            y: previous?.y || 430,
-            tx: previous?.tx || 720,
-            ty: previous?.ty || 430,
-            bubbleTime: 0,
-            blink: p.id * 0.43,
-          },
-          p,
-        );
+        p.x=previous?.x??720;p.y=previous?.y??430;
+        p.tx=previous?.tx??720;p.ty=previous?.ty??430;
+        p.bubbleTime=p.bubble&&p.bubble!==previous?.bubble?4.5:previous?.bubbleTime||0;
+        p.blink=p.id*.43;
       });
       e.state = view;
       e.preview = null;

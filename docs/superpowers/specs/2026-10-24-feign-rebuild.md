@@ -1,0 +1,13 @@
+# Village-first rebuild
+
+User rejects the current look and play, permits external tools/assets, and wants close similarity to Feign. Use official Feign Steam screenshots as design references, never ship its proprietary art, logo or screenshots. Retain original name and user requirements: humans only, Arabic/English, configurable teams/roles/timers, no death role reveals, anonymous attacker/healer in private scenes.
+
+Reference findings: Feign centers the whole game on an elevated village view, a compact role/timer toolbar, small expressive residents, plaster cottages around a clearing, grassy landscape/water, and effects at houses. Match those interaction and compositional conventions with original generated environment/cottage art, smaller readable characters and restrained HUD. Avoid chunky toy UI, oversized title overlays, dashboard-style lobby cards and a separate bedroom modal for actions.
+
+One village remains visible in menu, lobby and game. Lobby shows actual joined residents in the scene with a compact roster/code/settings dock. Day chat is usable without opening several menus. Private night animation frames the target house: approach, impact, collapse, anonymous healer arrival and recovery, then camera returns. Vote-out remains center walk/death without role display. Supply generated raster terrain and cottage sprites locally; vector/code character assets retain palette/customization/poses and cannot expose roles.
+
+Gameplay: reveal -> first night; each living player confirms abilities then finishes their turn; all finished or timeout resolves. Locked votes resolve once every living player has voted or the timer ends. Host force-advance remains an administrative control, not a client's ordinary finish-night action. Brief dawn leads to discussion. Preserve simultaneous resolution/role secrecy.
+
+Reliability: diagnose public PeerJS join failure; add an HTTPS mailbox relay fallback with authenticated per-member mailboxes if direct WebRTC fails. GitHub Pages continues serving the game. A small Sites Worker/D1 service may carry relay packets, with host authority retained, explicit host lease/closure, bounded queues, no public secrets, strict CORS and per-token seat binding. Root owns native Sites calls/publication. No signup/payment is needed for this existing platform integration.
+
+Verify four independent real clients through relay as well as existing WebRTC; game must be usable from the published URL, not only localhost. Check Arabic/mobile and screenshots of lobby/day/night. Preserve a clean original branch and publish only completed verified changes to the existing GitHub repo.

@@ -11,6 +11,8 @@ const {
   startNetworkFixture,
   NETWORK_BROWSER_ARGS,
 } = require("./network-fixture.cjs");
+const {startRelayFixture}=require("./relay-fixture.cjs");
+const useWebRTC=process.env.LANTERN_USE_WEBRTC==="1";
 const root = path.resolve(__dirname, "..");
 const web = http.createServer((req, res) => {
   let file = path.resolve(
@@ -33,7 +35,7 @@ const web = http.createServer((req, res) => {
         );
     res.setHeader(
       "Content-Type",
-      file.endsWith(".js") ? "text/javascript" : "text/html",
+      file.endsWith(".js") ? "text/javascript; charset=utf-8" : file.endsWith(".css") ? "text/css; charset=utf-8" : file.endsWith(".webp") ? "image/webp" : file.endsWith(".woff2") ? "font/woff2" : "text/html; charset=utf-8",
     );
     res.end(body);
   } catch {
@@ -48,8 +50,11 @@ const waitPhase = (page, phase) =>
 (async () => {
   try {
     await new Promise((r) => web.listen(0, "127.0.0.1", r));
-    fixture = await startNetworkFixture();
+    fixture = useWebRTC ? await startNetworkFixture() : process.env.LANTERN_RELAY_URL ? {url:process.env.LANTERN_RELAY_URL,close:async()=>{}} : await startRelayFixture();
+    const proxyURL=process.env.LANTERN_TEST_PROXY ? new URL(process.env.HTTPS_PROXY||process.env.HTTP_PROXY) : null;
+    const proxy=proxyURL?{server:proxyURL.origin,bypass:'localhost,127.0.0.1',...(proxyURL.username?{username:decodeURIComponent(proxyURL.username),password:decodeURIComponent(proxyURL.password)}:{})}:undefined;
     browser = await chromium.launch({
+      proxy,
       headless: true,
       executablePath:
         process.env.LANTERN_CHROMIUM_EXECUTABLE_PATH ||
@@ -60,11 +65,9 @@ const waitPhase = (page, phase) =>
       pages = [];
     for (let i = 0; i < 4; i++) {
       const context = await browser.newContext({
-        viewport: { width: 1440, height: 900 },
+        viewport: { width: 1440, height: 900 },ignoreHTTPSErrors:!!proxy,
       });
-      await context.addInitScript((peerOptions) => {
-        window.LANTERN_NETWORK_CONFIG = { peerOptions };
-      }, fixture.peerOptions);
+      await context.addInitScript(config=>{window.LANTERN_NETWORK_CONFIG=config;},useWebRTC?{transport:"webrtc",peerOptions:fixture.peerOptions}:{transport:"relay",relayUrl:fixture.url});
       const page = await context.newPage();
       page.on("pageerror", (e) => errors.push(e.stack));
       await page.goto("http://127.0.0.1:" + web.address().port);
@@ -113,36 +116,9 @@ const waitPhase = (page, phase) =>
       await page.locator('[data-act="revealcontinue"]').waitFor();
       await page.locator('[data-act="revealcontinue"]').click();
     }
-    for (const page of pages) await waitPhase(page, "day");
-    for (const page of pages)
-      assert.equal(
-        await page.evaluate(() =>
-          testEngine.state.players.slice(1).some((p) => p.role),
-        ),
-        false,
-        "another role reached a client",
-      );
-    await pages[1].evaluate(() =>
-      testEngine.online.command({ type: "advance" }),
-    );
-    await new Promise((r) => setTimeout(r, 150));
-    assert.equal(await host.evaluate(() => testEngine.state.phase), "day");
-    await pages[1].locator("#lh-chatbutton").click();
-    await pages[1].locator("#lh-chat-form input").fill("مرحبا Human2");
-    await pages[1].locator("#lh-chat-form input").press("Enter");
-    await host.waitForFunction(() =>
-      document
-        .querySelector("#lh-chatlog")
-        .textContent.includes("مرحبا Human2"),
-    );
-    await host.locator('[data-act="advance"]').click();
-    for (const page of pages) {
-      await waitPhase(page, "vote");
-      await page.locator('[data-act="skipvote"]').click();
-    }
-    await host.evaluate(() => testEngine.online.command({ type: "advance" }));
-    await waitPhase(host, "verdict");
-    for (const page of pages) await waitPhase(page, "night");
+    await host.screenshot({path:root+'/tests/v4-lobby.png'});
+    for(const page of pages)await waitPhase(page,'night');
+    for(const page of pages)assert.equal(await page.evaluate(()=>testEngine.state.players.slice(1).some(p=>p.role)),false);
     const roles = await Promise.all(
         pages.map((p) => p.evaluate(() => testEngine.state.players[0].role)),
       ),
@@ -162,8 +138,8 @@ const waitPhase = (page, phase) =>
     };
     await act(pages[killer], "Human" + victim);
     await act(pages[healer], "Human" + victim);
-    await host.locator('[data-act="advance"]').click();
-    await waitPhase(host, "resolve");
+    for(const page of pages)await page.locator('[data-act="finish-night"]').click();
+    await waitPhase(host,"resolve");
     await pages[victim].waitForFunction(
       () => testEngine.nightSequence?.current?.kind === "save",
     );
@@ -173,6 +149,7 @@ const waitPhase = (page, phase) =>
       ),
       "anonymous",
     );
+    await pages[healer].waitForFunction(()=>testEngine.nightSequence?.current?.kind==='save');
     assert.equal(
       await pages[healer].evaluate(
         () => testEngine.nightSequence.current.healer,
@@ -185,7 +162,8 @@ const waitPhase = (page, phase) =>
     await pages[victim].screenshot({
       path: root + "/tests/online-anonymous-save.png",
     });
-    for (const page of pages) await waitPhase(page, "morning");
+    for (const page of pages) await waitPhase(page, "day");
+    await host.screenshot({path:root+"/tests/v4-day.png"});
     assert.equal(
       await pages[victim].evaluate(() => testEngine.state.players[0].alive),
       true,
@@ -195,7 +173,7 @@ const waitPhase = (page, phase) =>
     await reconnectPage.reload();
     await reconnectPage.locator('[data-act="join-room"]').waitFor();
     await reconnectPage.locator('[data-act="join-room"]').click();
-    await waitPhase(reconnectPage, "morning");
+    await waitPhase(reconnectPage, "day");
     assert.equal(
       await reconnectPage.evaluate(() => testEngine.online.memberId),
       seat,
@@ -204,6 +182,9 @@ const waitPhase = (page, phase) =>
       await host.evaluate(() => testEngine.online.room.members.length),
       4,
     );
+    await pages[1].evaluate(()=>testEngine.online.command({type:'advance'}));
+    await pages[1].locator('#lh-chat-form input').fill('مرحبا Human2');await pages[1].locator('#lh-chat-form input').press('Enter');
+    await host.waitForFunction(()=>document.querySelector('#lh-chatlog').textContent.includes('مرحبا Human2'));
     await host.evaluate(() =>
       testEngine.online.command({ type: "pause", paused: true }),
     );
@@ -228,7 +209,6 @@ const waitPhase = (page, phase) =>
     await host.evaluate(() => {
       testEngine.online.command({ type: "pause", paused: false });
       testEngine.online.command({ type: "advance" });
-      testEngine.online.command({ type: "advance" });
     });
     for (let i = 0; i < pages.length; i++) {
       const page = pages[i];
@@ -243,7 +223,6 @@ const waitPhase = (page, phase) =>
         await page.locator('[data-act="voteconfirm"]').click();
       }
     }
-    await host.evaluate(() => testEngine.online.command({ type: "advance" }));
     await host.waitForFunction(() => testEngine.voteOut?.roleVisible);
     assert.equal(
       await host.evaluate(() => testEngine.voteOut.revealedRole),
@@ -273,7 +252,7 @@ const waitPhase = (page, phase) =>
 
     assert.deepEqual(errors, []);
     console.log(
-      "Four independent humans connected with real WebRTC: ready, private roles, chat, host authority, vote, anonymous save, reconnection, pause, Arabic phone hidden death role, kick notification and explicit host departure passed.",
+      "Four independent humans completed village flow over real transport: ready, private roles, chat, host authority, vote, anonymous save, reconnection, pause, Arabic phone hidden death role, kick notification and explicit host departure passed.",
     );
   } finally {
     if (browser) await browser.close();

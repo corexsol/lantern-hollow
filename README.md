@@ -1,51 +1,58 @@
 # Lantern Hollow
 
-A colorful social deduction game for **4–12 friends**, with original Canvas art, private night cinematics, and English / Arabic. There are no computer players.
+A village social deduction game for **4–12 friends**, with original illustrated scenery, private night animations, and English / Arabic. All match participants are human players.
+
+[Play online](https://corexsol.github.io/lantern-hollow/)
 
 ## Play
 
-1. Open the game, select your character to edit your name/appearance, then choose **Create room**.
-2. Copy the six-character code or invitation link and send it to friends.
-3. Friends open the same site, enter the code, and choose **Join room**.
-4. The host chooses fixed or randomized impostor count, optional neutrals, enabled roles, and timers. Everyone marks **Ready**, then the host starts.
-5. Each player sees their own secret role. Talk, vote, choose your night action, and watch your private outcome. Death never publishes the player's role. Roles appear in final results.
+1. Enter your name, customize your character, and choose **Create room**.
+2. Share the six-character code or invitation link. Friends choose **Join room**.
+3. The host opens **Match options** to choose impostors (fixed or random), neutrals, the role pool, and timers.
+4. Everyone marks **Ready**. The host starts, and each player acknowledges their private role.
+5. The first night begins. Select a house, confirm an ability, then **Finish turn**, or choose **Sleep**. The night resolves when all living players finish or the timer expires.
+6. Discuss during the day, then vote. The last locked ballot starts the village elimination animation automatically.
 
-The host controls starting, phase advances, pause and rematches. Opening a personal dialog does not pause other players. Arabic can be selected before joining and from gameplay settings. Names and player-written messages are preserved.
+Attacks and doctor recovery play at the target's cottage. Victims see anonymous visitors. Death never reveals a player's role; roles appear in the final match results. Arabic is available before joining and from gameplay settings. Player names and messages remain as written.
 
 ## Hosting
 
-These are static files and can run on **GitHub Pages**. In the repository's **Settings → Pages**, choose **GitHub Actions** as the source. The included workflow publishes pushes to `main`. Use the deployed URL shown by the workflow; no build step or runtime package install is needed.
+GitHub Pages serves the game. The included GitHub Actions workflow publishes pushes to `main`; configure Pages to use **GitHub Actions**. All browser assets are included, with no runtime package installation or third-party font requests.
 
-The room creator's browser is the game authority and must stay open. Reloading/closing the host page ends that room. A guest can reload and join again in the same tab/browser to recover their seat while the original host stays online. Explicit host departure ends the room; kicked players are notified.
+The default multiplayer service is an authenticated HTTPS relay. It works through ordinary HTTPS requests rather than requiring direct browser-to-browser connectivity. The relay source, D1 migrations, and artifact scripts are included in `relay-server/`. `config.js` specifies the public relay URL. No private service key is included in browser configuration.
 
-GitHub Pages does not run a multiplayer server. This game uses **PeerJS Cloud signaling and WebRTC data channels** between browsers. It needs internet access. Restrictive NATs/firewalls or unavailable signaling can prevent connections; configure an appropriate TURN relay in `config.js` for those networks. No network-wide connectivity guarantee is implied by GitHub hosting. See [NETWORK.md](NETWORK.md) for configuration and dependencies. The trusted host can inspect the complete match state; ordinary clients receive only permitted public information and their own secrets.
+The room creator's browser runs the authoritative game and must remain open. Closing or reloading that browser ends its room. Guests can rejoin their seat using the same browser while the host remains online. The host can pause, remove a player, force a phase from settings, and start rematches. The trusted host can inspect complete match state; guests receive only their permitted information. See [NETWORK.md](NETWORK.md) for transport configuration and security details.
 
-## Local development and checks
+## Development and checks
+
+Use Node 24 or newer for the SQLite-backed relay tests.
 
 ```sh
-npm install
+npm ci
 npx playwright install chromium
 npm run serve
 ```
 
-Open `http://localhost:8080`. Runtime dependencies are vendored; installed packages are test tools only.
+Open `http://localhost:8080`. Installed packages are test tools; runtime browser dependencies are vendored.
 
 ```sh
 npm test
 npm run test:browser
-npm run test:network
+npm run test:relay
 npm run test:multiplayer
 ```
 
-Browser checks use real PeerJS/WebRTC with a local test signaling/STUN fixture and independent browser contexts. Set `LANTERN_CHROMIUM_EXECUTABLE_PATH` for a separately installed Chromium. Tests cover private projections, authority, hidden death roles, anonymous doctor recovery, ready checks, Arabic/RTL, reconnection, removal and host loss. A local test cannot verify every ISP, corporate firewall or mobile carrier.
+The relay fixture runs the production Worker and its SQL schema over actual HTTP. Browser checks use independent Chromium contexts and exercise private roles, ready checks, night completion, anonymous doctor recovery, voting, hidden death roles, Arabic/RTL, reconnection, removal, pause, and host departure. Set `LANTERN_RELAY_URL` to test the deployed relay, and `LANTERN_CHROMIUM_EXECUTABLE_PATH` for a separately installed Chromium. `npm run test:network` checks the optional direct WebRTC transport.
 
 ## Source
 
-- `game.js`: shared rules, original artwork, audio and rendering.
+- `game.js`: shared rules, audio, and base renderer.
+- `scene.js`: illustrated village, characters, camera, and private action animations.
+- `village-ui.js` / `village-ui.css`: village interface and responsive styling.
 - `multiplayer-core.js`: authoritative rooms and private per-player projections.
-- `network.js`: WebRTC connection and authenticated seat binding.
-- `online.js`: room screens and gameplay integration.
-- `locale.js`: reversible Arabic / English translations.
-- `vendor/`: pinned PeerJS 1.5.5 and its MIT license.
+- `relay-network.js` / `relay-server/`: authenticated HTTPS transport and backend.
+- `network.js` / `vendor/`: optional PeerJS/WebRTC transport.
+- `online.js`: multiplayer integration and room lifecycle.
+- `locale.js`: Arabic / English translations.
 
-No private service key is required for the default signaling setup. Never commit long-lived TURN credentials; browser configuration is public.
+Artwork and font credits are in [ASSETS.md](ASSETS.md).

@@ -119,7 +119,7 @@ test("only actual connected, ready humans can start; host controls settings", ()
   assert.equal(host.state.config.online, true);
   assert.equal(host.state.config.revealRoles, false);
   ids.forEach((id) => host.command(id, { type: "ready", ready: true }));
-  assert.equal(host.state.phase, "day");
+  assert.equal(host.state.phase, "night");
 });
 
 test("reconnect requires the secret and a match cannot acquire new players", () => {
@@ -347,7 +347,7 @@ test("wall clock is authoritative, paused time freezes and cinematic outcomes wa
   );
   r.advance(3300);
   assert.equal(host.state.phase, "resolve");
-  r.advance(10000);
+  r.advance(host.remaining * 1000);
   assert.equal(host.state.phase, "morning");
   const dawn = host.snapshot(ids[1]);
   assert.equal(
@@ -680,4 +680,209 @@ test("names remove bidi formatting controls while preserving Arabic letters", ()
     host.snapshot("host").room.members.map((m) => m.name),
     ["صديق", "صديق 2", "مرحبا"],
   );
+});
+
+test("acknowledging the private reveal begins the first night before any discussion", () => {
+  const { host, ids } = started(6);
+  host.state.players.forEach((p, i) =>
+    RoleSystem.assign(p, i === 0 ? "impostor" : "doctor"),
+  );
+  ids.slice(0, -1).forEach((id) => {
+    assert.equal(host.command(id, { type: "ready", ready: true }).ok, true);
+    assert.equal(host.state.phase, "reveal");
+  });
+  assert.equal(
+    host.command(ids.at(-1), { type: "ready", ready: true }).ok,
+    true,
+  );
+  assert.equal(host.state.phase, "night");
+  assert.equal(host.snapshot(ids[1]).view.day, 1);
+  assert.equal(host.snapshot(ids[1]).view.nightFinished, false);
+  assert.equal(host.snapshot(ids[1]).room.finishedCount, 0);
+  assert.equal(host.snapshot(ids[1]).room.aliveCount, 6);
+  assert.equal(host.command(ids[1], { type: "chat", text: "Too soon" }).ok, false);
+});
+
+test("host reveal advance also begins the first night", () => {
+  const { host } = started();
+  assert.equal(host.command("host", { type: "advance" }).ok, true);
+  assert.equal(host.state.phase, "night");
+});
+
+test("finish-night binds to the caller, seals their turn and publishes only aggregate progress", () => {
+  const { host, ids } = started(6);
+  host.state.players.forEach((p, i) =>
+    RoleSystem.assign(p, i === 0 ? "impostor" : "doctor"),
+  );
+  phase(host, "night");
+  assert.equal(host.command(ids[2], { type: "night", target: 4 }).ok, true);
+  assert.equal(
+    host.command(ids[2], {
+      type: "finish-night",
+      actor: 0,
+      memberId: "host",
+      target: 5,
+    }).ok,
+    true,
+  );
+  const own = host.snapshot(ids[2]);
+  const other = host.snapshot(ids[1]);
+  assert.equal(own.view.nightFinished, true);
+  assert.equal(other.view.nightFinished, false);
+  assert.equal(host.snapshot("host").view.nightFinished, false);
+  assert.equal(other.room.finishedCount, 1);
+  assert.equal(other.room.aliveCount, 6);
+  assert.deepEqual(other.view.ownActions, []);
+  assert.ok(other.view.players.every((p) => !Object.hasOwn(p, "nightFinished")));
+  assert.ok(other.room.members.every((p) => !Object.hasOwn(p, "nightFinished")));
+  assert.deepEqual(own.view.ownActions, [{ actor: 0, mode: "ability", target: 4 }]);
+  assert.deepEqual(own.view.allowedTargets, {
+    ability: [], kill: [], plant: [], detonate: [],
+  });
+  assert.equal(host.command(ids[2], { type: "finish-night" }).ok, false);
+  assert.equal(host.command(ids[2], { type: "night", target: 5 }).ok, false);
+  assert.equal(host.command(ids[3], { type: "finish-night" }).ok, true);
+  assert.equal(host.command(ids[3], { type: "night", target: 5 }).ok, false);
+  assert.equal(other.room.phase, "night");
+});
+
+test("all living finished turns resolve automatically while death counts stay concealed until dawn", () => {
+  const r = started(6),
+    { host, ids } = r;
+  host.state.players.forEach((p, i) =>
+    RoleSystem.assign(p, i === 0 ? "impostor" : "doctor"),
+  );
+  phase(host, "night");
+  assert.equal(
+    host.command("host", { type: "night", mode: "kill", target: 3 }).ok,
+    true,
+  );
+  ids.slice(0, -1).forEach((id) => {
+    assert.equal(host.command(id, { type: "finish-night" }).ok, true);
+    assert.equal(host.state.phase, "night");
+  });
+  assert.equal(host.command(ids.at(-1), { type: "finish-night" }).ok, true);
+  assert.equal(host.state.phase, "resolve");
+  assert.equal(host.state.players[3].alive, false);
+  const packet = host.snapshot(ids[1]);
+  assert.equal(packet.view.players[3].alive, true);
+  assert.equal(packet.room.aliveCount, 6);
+  assert.equal(packet.room.finishedCount, 6);
+  assert.equal(packet.view.winner, null);
+  assert.equal(host.command("host", { type: "advance" }).ok, false);
+  r.advance(host.remaining * 1000);
+  assert.equal(host.state.phase, "morning");
+  assert.equal(host.snapshot(ids[1]).room.aliveCount, 5);
+  assert.equal(host.snapshot(ids[1]).room.finishedCount, 5);
+  r.advance(2999);
+  assert.equal(host.state.phase, "morning");
+  r.advance(1);
+  assert.equal(host.state.phase, "day");
+  phase(host, "night");
+  assert.equal(host.snapshot(ids[1]).view.nightFinished, false);
+  assert.equal(host.snapshot(ids[1]).room.finishedCount, 0);
+});
+
+test("dead seats cannot finish and never prevent all living players from ending the night", () => {
+  const { host, ids } = started(6);
+  host.state.players.forEach((p, i) =>
+    RoleSystem.assign(p, i === 0 ? "impostor" : "doctor"),
+  );
+  host.state.eliminate(2, "attacked");
+  phase(host, "night");
+  assert.equal(host.snapshot("host").room.aliveCount, 5);
+  assert.equal(host.command(ids[2], { type: "finish-night" }).ok, false);
+  ids.filter((_, i) => i !== 2).forEach((id) =>
+    assert.equal(host.command(id, { type: "finish-night" }).ok, true),
+  );
+  assert.equal(host.state.phase, "resolve");
+});
+
+test("a disconnected living turn can reconnect or expire without ending the night early", () => {
+  const r = started(6),
+    { host, ids } = r;
+  host.state.players.forEach((p, i) =>
+    RoleSystem.assign(p, i === 0 ? "impostor" : "doctor"),
+  );
+  phase(host, "night");
+  host.disconnect(ids[5]);
+  ids.slice(0, -1).forEach((id) =>
+    assert.equal(host.command(id, { type: "finish-night" }).ok, true),
+  );
+  assert.equal(host.state.phase, "night");
+  assert.equal(host.snapshot("host").room.aliveCount, 6);
+  assert.equal(host.snapshot("host").room.finishedCount, 5);
+  assert.equal(host.command(ids[5], { type: "finish-night" }).ok, false);
+  assert.equal(host.join("secret-credential-5"), ids[5]);
+  assert.equal(host.snapshot(ids[5]).view.nightFinished, false);
+  assert.equal(host.command(ids[5], { type: "finish-night" }).ok, true);
+  assert.equal(host.state.phase, "resolve");
+  phase(host, "night");
+  host.disconnect(ids[5]);
+  ids.slice(0, -1).forEach((id) => host.command(id, { type: "finish-night" }));
+  r.advance(host.remaining * 1000);
+  assert.equal(host.state.phase, "resolve");
+});
+
+test("finish-night is unavailable outside night or while the host has paused", () => {
+  const { host, ids } = started(6);
+  assert.equal(host.command(ids[1], { type: "finish-night" }).ok, false);
+  phase(host, "night");
+  host.command("host", { type: "pause", paused: true });
+  assert.equal(host.command(ids[1], { type: "finish-night" }).ok, false);
+  assert.equal(host.snapshot(ids[1]).view.nightFinished, false);
+  host.command("host", { type: "pause", paused: false });
+  assert.equal(host.command(ids[1], { type: "finish-night" }).ok, true);
+  phase(host, "day");
+  assert.equal(host.command(ids[1], { type: "finish-night" }).ok, false);
+});
+
+test("the final living locked ballot automatically starts the protected verdict", () => {
+  const r = started(6),
+    { host, ids } = r;
+  host.state.players.forEach((p, i) =>
+    RoleSystem.assign(p, i === 0 ? "impostor" : "doctor"),
+  );
+  host.state.eliminate(2, "attacked");
+  phase(host, "vote");
+  const voters = ids.filter((_, i) => i !== 2);
+  voters.slice(0, -1).forEach((id) => {
+    const target = host.snapshot(id).view.players.find(
+      (p) => p.name === "Human 3",
+    ).id;
+    assert.equal(host.command(id, { type: "vote", target }).ok, true);
+    assert.equal(host.state.phase, "vote");
+  });
+  const last = voters.at(-1);
+  const target = host.snapshot(last).view.players.find(
+    (p) => p.name === "Human 3",
+  ).id;
+  assert.equal(host.command(last, { type: "vote", target }).ok, true);
+  assert.equal(host.state.phase, "verdict");
+  assert.equal(host.state.players[3].alive, false);
+  const packet = host.snapshot(last);
+  assert.equal(packet.view.players.find((p) => p.name === "Human 3").alive, true);
+  assert.equal(packet.room.aliveCount, 5);
+  assert.equal(packet.visibleVotes.length, 5);
+  assert.equal(packet.verdict.target, target);
+  assert.equal(host.command("host", { type: "advance" }).ok, false);
+  r.advance(host.remaining * 1000);
+  assert.equal(host.state.phase, "night");
+});
+
+test("an unfinished disconnected voter remains bounded by the ballot timer", () => {
+  const r = started(6),
+    { host, ids } = r;
+  host.state.players.forEach((p, i) =>
+    RoleSystem.assign(p, i === 0 ? "impostor" : "doctor"),
+  );
+  phase(host, "vote");
+  host.disconnect(ids[5]);
+  ids.slice(0, -1).forEach((id) =>
+    assert.equal(host.command(id, { type: "vote", target: null }).ok, true),
+  );
+  assert.equal(host.state.phase, "vote");
+  r.advance(host.remaining * 1000);
+  assert.equal(host.state.phase, "verdict");
+  assert.equal(host.snapshot("host").verdict, undefined);
 });

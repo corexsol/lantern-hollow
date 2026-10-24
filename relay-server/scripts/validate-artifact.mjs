@@ -1,0 +1,11 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+const source = await readFile(new URL("../dist/server/index.js", import.meta.url), "utf8");
+const manifest = JSON.parse(await readFile(new URL("../dist/.openai/hosting.json", import.meta.url), "utf8"));
+assert.equal(manifest.d1, "DB");
+const module = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+assert.equal(typeof module.default?.fetch, "function");
+const sql = await readFile(new URL("../dist/.openai/drizzle/0000_relay.sql", import.meta.url), "utf8");
+assert.match(sql, /CREATE TABLE rooms/);
+assert.doesNotMatch(source, /CREATE\s+TABLE|ALTER\s+TABLE/i);
+console.log("Relay artifact is valid ESM with D1 migrations");

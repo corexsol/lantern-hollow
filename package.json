@@ -1,6 +1,6 @@
 {
   "name": "lantern-hollow",
-  "version": "4.0.0",
+  "version": "4.0.1",
   "private": true,
   "description": "A visual browser social deduction game for friends, in English and Arabic.",
   "scripts": {

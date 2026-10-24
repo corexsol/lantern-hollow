@@ -28,7 +28,7 @@
   class VillageGame extends Base {
     install(){
       super.install();const e=this.e,ui=e.ui;
-      const theme=document.querySelector('link[href="village-ui.css"]');if(theme)document.head.append(theme);
+      const theme=document.querySelector('link[data-village-theme]');if(theme)document.head.append(theme);
       ui.showGame=()=>this.showGame();
       ui.refreshActions=()=>this.actions();
       const refresh=ui.refresh.bind(ui);

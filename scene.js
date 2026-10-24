@@ -3,7 +3,8 @@
   "use strict";
   const { SceneRenderer, VoteOutSequence, clamp } = window.LanternCore;
   const TAU = Math.PI * 2;
-  const INK = "#3c382f";
+  const INK = "#322c2a";
+  const localize = (value) => window.LanternLocale?.t(value) || value;
   const smooth = (v) => { v = clamp(v, 0, 1); return v * v * (3 - 2 * v); };
   const mix = (a, b, t) => a + (b - a) * t;
   const imageAsset = (source) => {
@@ -16,15 +17,15 @@
     constructor(engine, canvas) {
       super(engine, canvas);
       this.art = {
-        terrain: imageAsset("assets/village-flat.svg"),
-        cottage: imageAsset("assets/cottage-flat.svg"),
+        terrain: imageAsset("assets/village-illustrated.webp"),
+        cottage: imageAsset("assets/cottage-illustrated.webp"),
       };
       this.rasters = new Map();
       this.focus = { x: 720, y: 450, amount: 0 };
       // Keep the shared map object: the engine and online projections attach these
       // exact house objects to players, and use their ids for target selection.
       this.map.layout = (players) => {
-        const rx = this.portrait ? 275 : 398;
+        const rx = this.portrait ? 275 : 412;
         const ry = this.portrait ? 284 : 235;
         this.map.houses = players.map((player, index) => {
           const angle = -Math.PI / 2 + index / Math.max(1, players.length) * TAU;
@@ -42,8 +43,8 @@
       this.map.meeting = (player, count) => {
         const index = this.map.houses.findIndex((house) => house.id === player.id);
         const angle = -Math.PI / 2 + Math.max(0, index) / Math.max(1, count) * TAU;
-        return { x: 720 + Math.cos(angle) * (this.portrait ? 148 : 220),
-          y: 459 + Math.sin(angle) * (Math.sin(angle) > 0 ? (this.portrait ? 125 : 81) : (this.portrait ? 147 : 100)) };
+        return { x: 720 + Math.cos(angle) * (this.portrait ? 155 : 244),
+          y: 459 + Math.sin(angle) * (Math.sin(angle) > 0 ? (this.portrait ? 125 : 94) : (this.portrait ? 147 : 100)) };
       };
       this.resize();
     }
@@ -65,8 +66,9 @@
     transform() {
       const focus = this.focus || { x: 720, y: 450, amount: 0 };
       const zoom = 1 + focus.amount * (this.portrait ? 1.65 : 1.15);
-      const z = this.scale * this.zoom * zoom;
-      return { z, ox: this.w / 2 - focus.x * z + this.pan.x,
+      const home = this.e.screen === "home" && this.w >= 1100;
+      const z = this.scale * this.zoom * zoom * (home ? .86 : 1);
+      return { z, ox: this.w * (home ? .60 : .5) - focus.x * z + this.pan.x,
         oy: this.h * (this.portrait ? 0.46 : 0.49) - focus.y * z + this.pan.y };
     }
 
@@ -86,17 +88,17 @@
 
     text(value, x, y, size = 14, color = INK, align = "center", outline = false) {
       const c = this.c;
-      c.font = `600 ${size}px "Nunito", "Trebuchet MS", sans-serif`;
+      c.font = `800 ${size}px "VillageArabic", "VillageSans", "Trebuchet MS", sans-serif`;
       c.textAlign = align;
       c.textBaseline = "alphabetic";
       if (outline) {
         c.strokeStyle = this.night > 0.4 ? "#142a38aa" : "#f4efd3cc";
         c.lineWidth = Math.max(2.5, size * 0.2);
         c.lineJoin = "round";
-        c.strokeText(String(value), x, y);
+        c.strokeText(String(localize(value)), x, y);
       }
       c.fillStyle = color;
-      c.fillText(String(value), x, y);
+      c.fillText(String(localize(value)), x, y);
     }
 
     transition(phase) {
@@ -162,8 +164,12 @@
       c.fillRect(-tr.ox / tr.z, -tr.oy / tr.z, this.w / tr.z, this.h / tr.z);
       c.fillStyle = "#86a747";
       c.fillRect(-tr.ox / tr.z, -tr.oy / tr.z, this.w / tr.z, Math.max(0, -50 + tr.oy / tr.z));
-      const art = this.rasterAsset("terrain", 2000, 1250);
-      if (art) c.drawImage(art, -80, -50, 1600, 1000);
+      const art = this.rasterAsset("terrain", 1600, 1000);
+      if (art) {
+        // Cover the viewport without a hard map edge, including tall phone screens.
+        const extent = Math.max(1, (720+tr.ox/tr.z)/800, ((this.w-tr.ox)/tr.z-720)/800, (450+tr.oy/tr.z)/500, ((this.h-tr.oy)/tr.z-450)/500);
+        c.drawImage(art, 720 - 800 * extent, 450 - 500 * extent, 1600 * extent, 1000 * extent);
+      }
       else {
         this.ellipse(720, 450, 450, 325, "#668e54", INK, 4);
         this.ellipse(720, 450, 400, 285, "#d5ba7c", INK, 3);
@@ -190,7 +196,8 @@
       const selected = this.e.selected === player.id;
       const over = this.hover === player.id;
       const valid = (this.e.validTargets?.() || []).some((target) => target.id === player.id);
-      const width = this.portrait ? 172 : 194, height = width * .9;
+      const crowded = this.map.houses.length > 10 ? .88 : 1;
+      const width = (this.portrait ? 174 : 206) * crowded, height = width * .917;
       const dead = !player.alive;
       c.save(); c.translate(h.x, h.y);
       const cinematic = this.nightFocus();
@@ -205,11 +212,11 @@
         c.beginPath(); c.ellipse(0, 10, width * .52, 24, 0, 0, TAU); c.stroke();
         c.restore();
       }
-      const art = this.rasterAsset("cottage", 388, 350, dead ? "#685f4b88" : null);
+      const art = this.rasterAsset("cottage", 480, 440, dead ? "#685f4b88" : null);
       if (art) {
-        c.drawImage(art, -width / 2, -height + 12, width, height);
+        if (dead || night < .995) c.drawImage(art, -width / 2, -height + 12, width, height);
         if (!dead && night > .002) {
-          const nightArt = this.rasterAsset("cottage", 388, 350, "#17284580");
+          const nightArt = this.rasterAsset("cottage", 480, 440, "#17284580");
           c.save(); c.globalAlpha *= night;
           c.drawImage(nightArt, -width / 2, -height + 12, width, height);
           c.restore();
@@ -218,10 +225,25 @@
       if (night > .03 && !dead) {
         // Warm windows share the original art's front-facing coordinates.
         c.save(); c.globalAlpha *= night;
-        const windowPoints = [[39,113],[78,121],[78,147],[39,139]];
-        this.path(windowPoints.map(([px,py]) => [width*(px/200-.5), -height+12+height*py/180]), INK, 1.5, true, "#f8d88b");
-        this.ellipse(width*.1, 15, 27, 7, "#f5d78b1c");
+        // Window glow follows the illustrated cottage's actual left window.
+        c.save(); c.translate(-width*.17,-height*.23); c.rotate(-.08);
+        this.round(-width*.075,-height*.11,width*.15,height*.17,4,"#ffd88690",null);
         c.restore();
+        this.ellipse(width*.18, 12, 29, 8, "#f5d78b26");
+        c.restore();
+      }
+      if (!dead) {
+        // Public color pennants identify homes without disclosing any role.
+        const fx=width*.36,fy=-height*.42;
+        this.path([[fx,fy-24],[fx,fy+4]],"#49382a",2);
+        this.path([[fx+1,fy-23],[fx+20,fy-18],[fx+1,fy-10]],"#4b3928",1,true,player.color||"#e3bd72");
+        if (!this.e.settings?.reduced && !cinematic) {
+          for(let i=0;i<2;i++) {
+            const age=((this.time*9+i*22+h.id*3)%44)/44;
+            c.save();c.globalAlpha*=.22*(1-age);
+            this.ellipse(-width*.22+Math.sin(age*4+h.id)*5,-height*.84-age*40,4+age*6,3+age*5,"#fff1d7");c.restore();
+          }
+        }
       }
       if (dead) {
         this.path([[-8,-9],[22,8]], "#624e3b", 6);
@@ -263,15 +285,15 @@
       const t = this.time * 10 + (player.id || 0) * 2;
       const stride = moving ? Math.sin(t) * 3 : 0;
       const color = player.color || "#d9bc7b";
-      c.save(); c.translate(player.x, player.y); c.scale(scale * 1.04, scale * .82);
+      c.save(); c.translate(player.x, player.y); c.scale(scale * 1.16, scale * 1.12);
       c.save(); c.translate(8, 8); c.rotate(-.28);
-      this.ellipse(0, 0, 21, 8, this.night > .3 ? "#06172940" : "#34412536");
+      this.ellipse(0, 0, 23, 9, this.night > .3 ? "#06172960" : "#34412545");
       c.restore();
       if (label && (this.e.selected === player.id || this.hover === player.id)) {
         c.strokeStyle = this.e.selected === player.id ? "#ffe8a1" : "#fff7d9";
         c.lineWidth = 1.7; c.beginPath(); c.ellipse(0, 5, 27, 11, 0, 0, TAU); c.stroke();
       }
-      c.translate(0, moving ? -Math.abs(Math.sin(t)) * 1.5 : 0);
+      c.translate(0, moving ? -Math.abs(Math.sin(t)) * 3 : 0);
       c.rotate(player.still || reduced ? 0 : moving ? Math.sin(t) * .035 : Math.sin(this.time * 1.2 + player.id) * .012);
       // Rounded woodland folk use the same flat fills and ink as the village.
       // Color, hats and accessories are public appearance only.
@@ -282,14 +304,23 @@
       c.beginPath(); c.moveTo(-16,-2); c.bezierCurveTo(-24,-8,-22,-26,-22,-37);
       c.bezierCurveTo(-22,-65,22,-65,22,-37); c.bezierCurveTo(22,-26,24,-8,16,-2);
       c.bezierCurveTo(7,2,-8,2,-16,-2); c.closePath();
-      c.fillStyle = color; c.fill(); c.strokeStyle = INK; c.lineWidth = 2.1; c.stroke();
+      c.fillStyle = color; c.fill(); c.strokeStyle = INK; c.lineWidth = 2.4; c.stroke();
+      // Small shaped highlight and lower shade give the body volume without filters.
+      this.path([[-15,-36],[-14,-45],[-9,-49]],"#ffffff60",3.5);
+      this.path([[-11,-3],[0,-1],[11,-3]],"#39272928",3);
+
       this.ellipse(-11,-29,3,1.5,"#ef99865a"); this.ellipse(11,-29,3,1.5,"#ef99865a");
       if (player.deadFace) {
         [-6,6].forEach((x)=> {this.path([[x-2,-37],[x+2,-33]],INK,1.1);this.path([[x+2,-37],[x-2,-33]],INK,1.1);});
       } else if (Math.sin((this.time + (player.blink || 0)) * 1.2) > .998) {
         this.path([[-8,-35],[-4,-35]],INK,1.3); this.path([[4,-35],[8,-35]],INK,1.3);
       } else {
-        this.ellipse(-7,-35,2.2,3.2,INK); this.ellipse(7,-35,2.2,3.2,INK);
+        this.ellipse(-7,-35,3.4,4.6,"#fff8e8",INK,1.1); this.ellipse(7,-35,3.4,4.6,"#fff8e8",INK,1.1);
+        const glance = moving ? Math.sign(player.tx-player.x)*1.1 : Math.sin(this.time*.5+player.id)*.7;
+        this.ellipse(-7+glance,-34.5,1.8,2.7,INK); this.ellipse(7+glance,-34.5,1.8,2.7,INK);
+        if (player.doomed) {
+          this.path([[-11,-43],[-5,-45]],INK,1.5); this.path([[5,-45],[11,-43]],INK,1.5);
+        }
       }
       this.path([[-2,-29],[0,-28],[2,-29]],"#3b4230",.9);
       if (player.doomed) this.ellipse(0,-28,1.5,2.2,INK);
@@ -306,8 +337,8 @@
       this.hat(player.hat);
       if (label) {
         const own = player.id === 0;
-        this.text(player.name || (own ? "YOU" : ""),0,28,12,this.night>.4?"#f2efda":"#33402d","center",true);
-        if (own) this.ellipse(0,-72,2.5,2.5,"#ffebac", "#947d49",.8);
+        this.text(player.name || (own && this.e.screen !== "home" ? "YOU" : ""),0,24,12,this.night>.4?"#f2efda":"#33402d","center",true);
+        if (own && this.e.screen !== "home") this.path([[-5,-76],[0,-70],[5,-76]],"#57482a",1.2,true,"#ffe39c");
       }
       c.restore();
     }
@@ -429,7 +460,11 @@
             c.save(); c.globalAlpha=Math.sin(clamp((t-3.6)/1.95,0,1)*Math.PI)*.7;
             const ring=28+smooth((t-3.6)/1.8)*35;
             this.ellipse(x,y-17,ring,ring*.63,"#b5e1bd15","#bee6c7",1.6);
-            for(let i=0;i<5;i++) this.ellipse(x+Math.cos(i/5*TAU)*29,y-10-(t-3.6)*24-i*4,1.8,1.8,"#e4f0b9");
+            for(let i=0;i<5;i++) {
+              const px=x+Math.cos(i/5*TAU)*34,py=y-10-(t-3.6)*28-i*5;
+              this.path([[px-3,py],[px+3,py]],"#d9ffd7",2.5);
+              this.path([[px,py-3],[px,py+3]],"#d9ffd7",2.5);
+            }
             c.restore();
           }
         }
@@ -440,6 +475,9 @@
         if(t>2&&t<2.55) {
           const impact=1-smooth((t-2)/.55);
           c.save();c.globalAlpha=impact;
+          this.path([[x-32,y-67],[x+24,y-12]],"#fff5cb",8);
+          this.path([[x-32,y-67],[x+24,y-12]],"#f5ad64",3);
+          this.ellipse(x,y+5,38+(1-impact)*32,10+(1-impact)*10,"#f4dbad20","#f4dbad",2);
           for(let i=0;i<6;i++) {const angle=i/6*TAU;this.path([[x+Math.cos(angle)*24,y-31+Math.sin(angle)*24],[x+Math.cos(angle)*38,y-31+Math.sin(angle)*38]],scene.style==="blast"?"#efc789":"#f1dfb6",1.8);}
           c.restore();
         }
@@ -509,6 +547,15 @@
       c.translate(tr.ox,tr.oy);c.scale(tr.z,tr.z);
       this.shake=0;
       this.terrain();
+      if (this.night < .7 && !e.settings?.reduced) {
+        c.save(); c.globalAlpha=(1-this.night)*.6;
+        for(let i=0;i<12;i++) {
+          const x=160+(i*109)%1190+Math.sin(this.time*.24+i)*24;
+          const y=180+(i*137)%550+Math.cos(this.time*.3+i)*12;
+          this.ellipse(x,y,1.8,1.1,"#fff0bd");
+        }
+        c.restore();
+      }
       if(s?.phase==="night"&&e.nightTarget!==null&&players[0]?.alive) {
         const from=players[0].house,to=this.map.houses.find((h)=>h.id===e.nightTarget);
         if(from&&to) {

@@ -29,7 +29,7 @@ const server = http.createServer((req, res) => {
         );
     res.setHeader(
       "Content-Type",
-      file.endsWith(".svg") ? "image/svg+xml" : file.endsWith(".js")
+      file.endsWith(".webp") ? "image/webp" : file.endsWith(".css") ? "text/css" : file.endsWith(".svg") ? "image/svg+xml" : file.endsWith(".js")
         ? "text/javascript"
         : file.endsWith(".css")
           ? "text/css"
@@ -57,7 +57,9 @@ const server = http.createServer((req, res) => {
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.stack));
     await page.goto("http://127.0.0.1:" + server.address().port);
-    await page.waitForTimeout(300);
+    await page.waitForFunction(()=>testEngine.scene.art.terrain.naturalWidth>0&&testEngine.scene.art.cottage.naturalWidth>0);
+    await page.waitForTimeout(1800);
+    await page.screenshot({ path: root + "/tests/v6-home.png" });
     if (errors.length) console.log(errors);
     assert.equal(await page.locator('.entrance-panel').count(),1,'the game should open on the new village entrance');
     assert.equal(await page.evaluate(()=>testEngine.scene.constructor.name),'LanternSceneRenderer');
@@ -75,6 +77,7 @@ const server = http.createServer((req, res) => {
     assert.equal(await page.getAttribute("html", "dir"), "rtl");
     assert.ok((await page.locator("body").innerText()).includes("غرفة"));
     await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForTimeout(1800);
     await page.screenshot({ path: root + "/tests/arabic-home.png" });
     assert.equal(
       await page.evaluate(

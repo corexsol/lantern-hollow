@@ -35,7 +35,7 @@ const web = http.createServer((req, res) => {
         );
     res.setHeader(
       "Content-Type",
-      file.endsWith(".svg") ? "image/svg+xml" : file.endsWith(".js") ? "text/javascript; charset=utf-8" : file.endsWith(".css") ? "text/css; charset=utf-8" : file.endsWith(".webp") ? "image/webp" : file.endsWith(".woff2") ? "font/woff2" : "text/html; charset=utf-8",
+      file.endsWith(".webp") ? "image/webp" : file.endsWith(".css") ? "text/css" : file.endsWith(".svg") ? "image/svg+xml" : file.endsWith(".js") ? "text/javascript; charset=utf-8" : file.endsWith(".css") ? "text/css; charset=utf-8" : file.endsWith(".webp") ? "image/webp" : file.endsWith(".woff2") ? "font/woff2" : "text/html; charset=utf-8",
     );
     res.end(body);
   } catch {

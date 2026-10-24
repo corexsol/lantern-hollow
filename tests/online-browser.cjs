@@ -29,7 +29,7 @@ const server = http.createServer((req, res) => {
         );
     res.setHeader(
       "Content-Type",
-      file.endsWith(".js")
+      file.endsWith(".svg") ? "image/svg+xml" : file.endsWith(".js")
         ? "text/javascript"
         : file.endsWith(".css")
           ? "text/css"

@@ -130,3 +130,11 @@ test("a multi-house blast animates its projected targets, never the bomber's own
   assert.deepEqual(bodies, [2, 5]);
   assert.equal(visitors.length, 0, "an explosion never invents an attacking visitor");
 });
+
+test('large and high density displays keep the scene backing store bounded', () => {
+  const { scene, sandbox } = fixture({ width: 1920, height: 1080 });
+  sandbox.devicePixelRatio = 3;
+  scene.resize();
+  assert.ok(scene.dpr <= 1.5);
+  assert.ok(scene.canvas.width * scene.canvas.height <= 1920 * 1080 * 2.25);
+});

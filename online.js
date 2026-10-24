@@ -79,6 +79,7 @@
       this.sceneKey = null;
       this.rolePresented = false;
       this.lastSent = 0;
+      this.projections = new Map();
       const style = document.createElement("style");
       style.textContent = STYLE;
       document.head.append(style);
@@ -386,7 +387,9 @@
         this.remember(code);
         this.busy = false;
         this.status = "";
-        if (this.room) this.renderRoom();
+        // Admission and its first projection can share a poll response. The
+        // snapshot handler has already entered an active match in that case.
+        if (this.room && !this.lastPacket?.view) this.renderRoom();
       } catch (error) {
         this.busy = false;
         this.failure(error);
@@ -419,13 +422,49 @@
     sendSnapshot(id) {
       const packet = this.authority?.snapshot(id);
       if (!packet) return;
+      this.projections.set(id, {
+        authority: this.authority,
+        network: this.network,
+        content: this.snapshotContent(packet),
+        clockAt: packet.serverTime,
+      });
       if (id === this.authority.hostId) this.receive(packet);
       else this.network?.sendTo(id, packet);
     }
+    snapshotContent(packet) {
+      // Timer progress changes four times a second; the private projection
+      // changes only when rules or a player action change its content.
+      return JSON.stringify({ ...packet, seq: undefined, serverTime: undefined,
+        remaining: undefined, sceneElapsed: undefined,
+        verdict: packet.verdict ? { ...packet.verdict, elapsed: undefined } : undefined });
+    }
     broadcast() {
       if (!this.authority || !this.network) return;
+      if (this.broadcastPending) return;
+      this.broadcastPending = true;
+      queueMicrotask(() => { this.broadcastPending = false; this.flushBroadcast(); });
+    }
+    flushBroadcast() {
+      if (!this.authority || !this.network) return;
       for (const member of this.authority.members)
-        if (member.connected) this.sendSnapshot(member.id);
+        if (member.connected) {
+          const packet = this.authority.snapshot(member.id);
+          if (!packet) continue;
+          const content = this.snapshotContent(packet), previous = this.projections.get(member.id);
+          if (!previous || previous.authority !== this.authority || previous.network !== this.network || previous.content !== content) {
+            this.projections.set(member.id, { authority: this.authority, network: this.network, content, clockAt: packet.serverTime });
+            if (member.id === this.authority.hostId) this.receive(packet);
+            else this.network.sendTo(member.id, packet);
+          } else if (member.id === this.authority.hostId || packet.serverTime - previous.clockAt >= 1000) {
+            previous.clockAt = packet.serverTime;
+            const clock = { type: "clock", seq: packet.seq, serverTime: packet.serverTime,
+              phase: packet.view?.phase, sceneKey: packet.sceneKey,
+              remaining: packet.remaining, duration: packet.duration, paused: packet.paused,
+              sceneElapsed: packet.sceneElapsed, verdictElapsed: packet.verdict?.elapsed };
+            if (member.id === this.authority.hostId) this.receive(clock);
+            else this.network.sendTo(member.id, clock);
+          }
+        }
     }
     command(message) {
       if (!this.room) {
@@ -447,6 +486,21 @@
       this.network.send(message);
     }
     receive(packet) {
+      if (packet.type === "clock") {
+        // A late clock cannot roll a newer phase/projection backward. Clocks
+        // contain no roles, identities, targets, or animation scene details.
+        if (!this.lastPacket?.view || packet.seq < this.lastPacket.seq ||
+          packet.phase !== this.lastPacket.view.phase || packet.sceneKey !== this.lastPacket.sceneKey) return;
+        this.lastPacket.seq = packet.seq;
+        const e = this.e;
+        e.paused = packet.paused; e.duration = packet.duration;
+        e.remaining = packet.remaining; e.elapsed = packet.duration - packet.remaining;
+        if (packet.phase === "resolve" && e.nightSequence)
+          this.animateNight(Math.max(0, packet.sceneElapsed - e.nightSequence.elapsed));
+        if (packet.phase === "verdict" && e.voteOut)
+          this.animateVote(Math.max(0, packet.verdictElapsed - e.voteOut.elapsed));
+        return;
+      }
       if (packet.type === "room-ended" || packet.type === "removed") {
         this.leave(
           packet.type === "room-ended"
@@ -460,6 +514,7 @@
         return;
       }
       if (packet.type !== "snapshot") return;
+      if (this.lastPacket && this.room?.code === packet.room?.code && packet.seq < this.lastPacket.seq) return;
       this.connectionLost = false;
       this.e.ui.root.querySelector(".connection-warning")?.remove();
       this.room = packet.room;
@@ -591,6 +646,7 @@
       if (!e.state || e.screen !== "game" || e.paused || this.connectionLost)
         return;
       e.remaining = Math.max(0, e.remaining - dt);
+      e.elapsed += dt;
       if (e.state.phase === "verdict") this.animateVote(dt);
       if (e.state.phase === "resolve") this.animateNight(dt);
       e.ui.tick();
@@ -680,6 +736,8 @@
       this.room = null;
       this.authority = null;
       this.network = null;
+      this.projections.clear();
+      this.lastPacket = null;
       if (wasHost) setTimeout(() => network?.close(), 60);
       else network?.close();
       this.memberId = null;

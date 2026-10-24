@@ -32,6 +32,7 @@
       this._snapshots = new Map();
       this._received = new Map();
       this._closed = true; this._generation = 0; this._chain = Promise.resolve(); this._queued = 0;
+      this._jobs = []; this._activeLanes = new Set(); this._activeWrites = 0;
     }
     create(code) { return this._begin("host", code); }
     join(code, hello) {
@@ -156,6 +157,7 @@
     async _write(action, data, connection, generation) {
       const started = Date.now();
       for (let attempt = 0; ; attempt++) {
+        if (this._closed || generation !== this._generation) return;
         try {
           const response = await this._request(action, data, connection);
           if (!this._closed && generation === this._generation && this.memberId && this.status === "connecting") this._status("open");
@@ -176,12 +178,37 @@
       if (this._closed || this._queued >= 256) return false;
       const connection = { code: this.code, secret: this.secret }, generation = this._generation;
       this._queued++;
-      this._chain = this._chain.then(() => { beforeRun?.(); return this._write(action, data, connection, generation); }).catch(error => {
-        if (this._closed || generation !== this._generation) return;
-        if (this.mode === "host" && ["stale-connection", "member-disconnected"].includes(error.code)) { if (entry) this._drop(entry); return; }
-        this._fail(error);
-      }).finally(() => { if (generation === this._generation) this._queued--; });
+      // Independent private mailboxes must not wait for every other player's
+      // HTTP round trip. Keep acceptance and messages in order within a seat.
+      const lane = this.mode === "host" ? data.memberId || entry?.id || data.connectionId : "host";
+      let done;
+      const completion = new Promise(resolve => { done = resolve; });
+      this._chain = Promise.all([this._chain, completion]).then(noop);
+      this._jobs.push({ lane, action, data, entry, beforeRun, connection, generation, done });
+      this._pump();
       return true;
+    }
+    _pump() {
+      while (this._activeWrites < 4) {
+        const index = this._jobs.findIndex(job => !this._activeLanes.has(job.lane));
+        if (index < 0) return;
+        const job = this._jobs.splice(index, 1)[0];
+        if (this._closed || job.generation !== this._generation) { job.done(); continue; }
+        this._activeWrites++; this._activeLanes.add(job.lane);
+        Promise.resolve().then(() => {
+          if (this._closed || job.generation !== this._generation) return;
+          job.beforeRun?.(); return this._write(job.action, job.data, job.connection, job.generation);
+        }).catch(error => {
+          if (this._closed || job.generation !== this._generation) return;
+          if (this.mode === "host" && ["stale-connection", "member-disconnected"].includes(error.code)) { if (job.entry) this._drop(job.entry); return; }
+          this._fail(error);
+        }).finally(() => {
+          if (job.generation === this._generation) {
+            this._queued--; this._activeWrites--; this._activeLanes.delete(job.lane);
+            job.done(); this._pump();
+          } else job.done();
+        });
+      }
     }
     accept(connectionId, memberId) {
       const entry = this.connections.get(connectionId);
@@ -192,6 +219,7 @@
         // A pre-admission roster broadcast may still be queued for the old
         // connection. New projections must queue after this acceptance.
         this._snapshots.delete(memberId);
+        this._snapshots.delete(memberId + ":clock");
       }
       entry.memberId = memberId; this.members.set(memberId, entry);
       return this._queue("accept", { connectionId, memberId }, entry);
@@ -206,13 +234,15 @@
     sendTo(memberId, message) {
       const entry = this.members.get(memberId), value = this._wire(message, 262144);
       if (this.mode !== "host" || !entry || !value || this._closed) return false;
-      if (value.type !== "snapshot") return this._queue("send", { memberId, message: value }, entry);
-      const pending = this._snapshots.get(memberId);
+      if (value.type !== "snapshot" && value.type !== "clock") return this._queue("send", { memberId, message: value }, entry);
+      // A clock may replace another pending clock, never the initial full view.
+      const key = value.type === "clock" ? memberId + ":clock" : memberId;
+      const pending = this._snapshots.get(key);
       if (pending) { pending.message = value; return true; }
       const data = { memberId, message: value };
-      this._snapshots.set(memberId, data);
-      const queued = this._queue("send", data, entry, () => { if (this._snapshots.get(memberId) === data) this._snapshots.delete(memberId); });
-      if (!queued) this._snapshots.delete(memberId);
+      this._snapshots.set(key, data);
+      const queued = this._queue("send", data, entry, () => { if (this._snapshots.get(key) === data) this._snapshots.delete(key); });
+      if (!queued) this._snapshots.delete(key);
       return queued;
     }
     broadcast(factory) { if (this.mode !== "host" || this._closed || typeof factory !== "function") return 0; let count = 0; for (const memberId of Array.from(this.members.keys())) { const value = factory(memberId); if (value != null && this.sendTo(memberId, value)) count++; } return count; }
@@ -226,6 +256,10 @@
     }
     _stop(error) {
       this._closed = true; this._generation++; clearTimeout(this._pollTimer); clearTimeout(this._operationTimer);
+      // Unsent work belongs to the old authenticated session. In-flight work
+      // may finish, but must never occupy or release a replacement's lanes.
+      for (const job of this._jobs.splice(0)) job.done();
+      this._activeWrites = 0; this._activeLanes.clear(); this._queued = 0;
       const pending = this._pending; this._pending = null; pending?.reject(error);
       this.connections.clear(); this.members.clear(); this._snapshots.clear();
     }

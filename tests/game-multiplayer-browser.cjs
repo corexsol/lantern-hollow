@@ -35,7 +35,7 @@ const web = http.createServer((req, res) => {
         );
     res.setHeader(
       "Content-Type",
-      file.endsWith(".js") ? "text/javascript; charset=utf-8" : file.endsWith(".css") ? "text/css; charset=utf-8" : file.endsWith(".webp") ? "image/webp" : file.endsWith(".woff2") ? "font/woff2" : "text/html; charset=utf-8",
+      file.endsWith(".svg") ? "image/svg+xml" : file.endsWith(".js") ? "text/javascript; charset=utf-8" : file.endsWith(".css") ? "text/css; charset=utf-8" : file.endsWith(".webp") ? "image/webp" : file.endsWith(".woff2") ? "font/woff2" : "text/html; charset=utf-8",
     );
     res.end(body);
   } catch {
@@ -92,6 +92,16 @@ const waitPhase = (page, phase) =>
     await host.waitForFunction(
       () => testEngine.online.room.members.length === 4,
     );
+    await host.locator('[data-act="toggle-room-settings"]').first().click();
+    await host.locator('[data-setting="night"]').fill('77');
+    await pages[1].evaluate(()=>testEngine.online.command({type:'ready',ready:true}));
+    await host.waitForFunction(()=>testEngine.online.room.members.some(m=>m.name==='Human1'&&m.ready));
+    assert.equal(await host.locator('[data-setting="night"]').inputValue(),'77','incoming lobby updates must preserve a timer draft');
+    assert.equal(await host.evaluate(()=>document.activeElement?.dataset.setting),'night','incoming lobby updates must preserve editor focus');
+    await host.locator('[data-setting="night"]').press('Tab');
+    await host.waitForFunction(()=>testEngine.online.room.settings.night===77);
+    await pages[1].evaluate(()=>testEngine.online.command({type:'ready',ready:false}));
+    await host.locator('.match-settings [data-act="toggle-room-settings"]').click();
     const lobbyReturn = pages[3];
     const lobbySeat = await lobbyReturn.evaluate(()=>testEngine.online.memberId);
     await lobbyReturn.reload();

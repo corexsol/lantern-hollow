@@ -25,7 +25,7 @@ jobs:
           cp index.html game.js config.js network.js relay-network.js multiplayer-core.js locale.js scene.js online.js village-ui.js village-ui.css .nojekyll dist/
           cp vendor/peerjs.min.js vendor/peerjs.LICENSE dist/vendor/
           mkdir -p dist/assets/fonts
-          cp assets/*.webp dist/assets/
+          cp assets/*.svg dist/assets/
           cp assets/fonts/* dist/assets/fonts/
       - uses: actions/upload-pages-artifact@v3
         with:

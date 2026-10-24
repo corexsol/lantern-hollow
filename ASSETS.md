@@ -1,6 +1,10 @@
 # Asset credits
 
-## Original game artwork
+## Current vector artwork
+
+`assets/village-flat.svg` and `assets/cottage-flat.svg` are original, code-authored illustrations for the current flat cartoon village. They share a restrained outline, flat colors and simple shapes with the Canvas characters. SVG terrain and cottages are rasterized once into local renderer caches.
+
+## Earlier artwork
 
 `assets/village-terrain.webp` and `assets/cottage.webp` were generated for Lantern Hollow using OpenAI image generation and optimized as WebP for delivery. Character shapes, accessories, particles, interface icons, lighting, and animations are rendered by this project's Canvas/SVG code. The game does not distribute Feign screenshots, sprites, audio, or other extracted game assets.
 

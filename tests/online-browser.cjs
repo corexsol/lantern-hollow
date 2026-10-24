@@ -67,6 +67,10 @@ const server = http.createServer((req, res) => {
       "must show real multiplayer creation instead of offline bot play",
     );
     assert.equal(await page.locator('[data-act="join-room"]').count(), 1);
+    await page.locator('#lh-name').fill('Omar');
+    assert.equal(await page.evaluate(()=>testEngine.config.name),'Omar','entrance edits must reach the profile before another control rerenders it');
+    await page.reload();
+    assert.equal(await page.locator('#lh-name').inputValue(),'Omar','the edited name persists');
     await page.locator('[data-act="language"]').click();
     assert.equal(await page.getAttribute("html", "dir"), "rtl");
     assert.ok((await page.locator("body").innerText()).includes("غرفة"));

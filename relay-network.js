@@ -187,7 +187,12 @@
       const entry = this.connections.get(connectionId);
       if (this.mode !== "host" || !entry || entry.memberId || !validMember(memberId) || this._closed) return false;
       const previous = this.members.get(memberId);
-      if (previous && previous !== entry) this.connections.delete(previous.id);
+      if (previous && previous !== entry) {
+        this.connections.delete(previous.id);
+        // A pre-admission roster broadcast may still be queued for the old
+        // connection. New projections must queue after this acceptance.
+        this._snapshots.delete(memberId);
+      }
       entry.memberId = memberId; this.members.set(memberId, entry);
       return this._queue("accept", { connectionId, memberId }, entry);
     }

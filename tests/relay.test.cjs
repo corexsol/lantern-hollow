@@ -144,6 +144,47 @@ test("RoomNetwork API exchanges private packets across four independent HTTP cli
   await host.close(); await until(() => replacement.status === "disconnected");
 });
 
+test("lobby token rejoin gets its initial snapshot after a pre-accept authoritative roster broadcast", async t => {
+  const f = await startRelayFixture(); t.after(() => f.close());
+  const { RelayRoomNetwork } = require("../relay-network.js");
+  const { RoomHost } = require("../multiplayer-core.js");
+  const originalPackets = [], rejoinedPackets = [], leaves = [];
+  const nativeFetch = global.fetch;
+  let staleSends = 0;
+  global.fetch = async (url, options) => {
+    const response = await nativeFetch(url, options);
+    if (String(url).startsWith(f.url) && String(url).endsWith("/send") && response.status === 409 && (await response.clone().json()).error.code === "member-disconnected") staleSends++;
+    return response;
+  };
+  t.after(() => { global.fetch = nativeFetch; });
+  let host, authority, broadcasts = 0;
+  host = new RelayRoomNetwork({ relayUrl: f.url, pollMs: 25, origin,
+    onJoin: (connectionId, hello) => {
+      // RoomHost.join emits its roster change synchronously, before admission.
+      const memberId = authority.join(hello.token, hello.profile);
+      host.accept(connectionId, memberId);
+      host.sendTo(memberId, authority.snapshot(memberId));
+    },
+    onLeave: id => leaves.push(id),
+  });
+  t.after(() => host.close()); await host.create("KLM234");
+  authority = new RoomHost({ code: "KLM234", hostProfile: { name: "Host" }, onChange: () => { broadcasts++; host.broadcast(id => authority.snapshot(id)); } });
+  const original = new RelayRoomNetwork({ relayUrl: f.url, pollMs: 25, origin, onMessage: packet => originalPackets.push(packet) });
+  const rejoined = new RelayRoomNetwork({ relayUrl: f.url, pollMs: 25, origin, onMessage: packet => rejoinedPackets.push(packet) });
+  t.after(() => original.close()); t.after(() => rejoined.close());
+  const memberId = await original.join("KLM234", { token: token("lobby-reload"), profile: { name: "Original" } });
+  await until(() => originalPackets.length > 0); await host._chain;
+  // A replacement tab reuses the browser token without a graceful leave.
+  assert.equal(await rejoined.join("KLM234", { token: token("lobby-reload"), profile: { name: "Reloaded" } }), memberId);
+  await host._chain;
+  assert.equal(staleSends, 1);
+  assert.equal(host.members.get(memberId).id, rejoined.connectionId);
+  assert.deepEqual(leaves, []);
+  await until(() => rejoinedPackets.length > 0, 1000);
+  assert.equal(rejoinedPackets[0].room.members.find(member => member.id === memberId).name, "Reloaded");
+  assert.equal(broadcasts, 2, "The rejoined lobby must not require a later roster broadcast");
+});
+
 for (const action of ["accept", "reject"]) test(`a stale ${action} cannot mutate a rotated reconnect session`, async t => {
   const f = await startRelayFixture(); t.after(() => f.close());
   const code = action === "accept" ? "WXY234" : "XYZ234";

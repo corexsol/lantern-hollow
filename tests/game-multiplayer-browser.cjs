@@ -92,6 +92,12 @@ const waitPhase = (page, phase) =>
     await host.waitForFunction(
       () => testEngine.online.room.members.length === 4,
     );
+    const lobbyReturn = pages[3];
+    const lobbySeat = await lobbyReturn.evaluate(()=>testEngine.online.memberId);
+    await lobbyReturn.reload();
+    await lobbyReturn.locator('[data-act="join-room"]').click();
+    await lobbyReturn.locator('.room-code').waitFor();
+    assert.equal(await lobbyReturn.evaluate(()=>testEngine.online.memberId),lobbySeat,'rejoining the lobby must restore the same seat and first projection');
     await host.evaluate(() =>
       testEngine.online.command({
         type: "settings",

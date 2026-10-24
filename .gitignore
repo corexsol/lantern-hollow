@@ -1,0 +1,9 @@
+node_modules/
+dist/
+playwright-report/
+test-results/
+tests/*.png
+tests/*.webm
+tests/*.zip
+.superpowers/
+.DS_Store

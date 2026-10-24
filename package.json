@@ -1,0 +1,17 @@
+{
+  "name": "lantern-hollow",
+  "version": "3.0.0",
+  "private": true,
+  "description": "A visual browser social deduction game for friends, in English and Arabic.",
+  "scripts": {
+    "test": "node --test tests/*.test.cjs",
+    "test:browser": "node tests/online-browser.cjs",
+    "test:multiplayer": "node tests/game-multiplayer-browser.cjs",
+    "test:network": "LANTERN_REAL_NETWORK_TEST=1 node --test tests/network.test.cjs",
+    "serve": "node tools/serve.cjs"
+  },
+  "devDependencies": {
+    "peer": "1.0.2",
+    "playwright": "1.62.1"
+  }
+}

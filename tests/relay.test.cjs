@@ -298,3 +298,18 @@ test("receive dedupe is scoped to the authenticated sender and strips packet IDs
   await until(() => host.cursor >= last);
   assert.deepEqual(delivered, [1, 2].map(n => ({ message: { type: "chat", text: "same transport id" }, actor: `p${n}` })));
 });
+
+test("relay fixture shutdown does not wait for a live client's unfinished HTTP request", async () => {
+  const net = require("node:net"), f = await startRelayFixture(), target = new URL(f.url);
+  const socket = net.createConnection({ host: target.hostname, port: Number(target.port) });
+  await new Promise((resolve, reject) => { socket.once("connect", resolve); socket.once("error", reject); });
+  socket.on("error", () => {});
+  // Model a request which is still live when the fixture's first after-hook
+  // executes, before the corresponding transport's close hook can run.
+  socket.write("POST /v1/rooms/ABC234/poll HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n{");
+  await new Promise(resolve => setImmediate(resolve));
+  let timer;
+  try {
+    await Promise.race([f.close(), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Fixture shutdown waited for a live client")), 1000); })]);
+  } finally { clearTimeout(timer); socket.destroy(); }
+});

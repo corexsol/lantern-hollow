@@ -47,6 +47,11 @@ async function startRelayFixture() {
     } catch (failure) { outgoing.writeHead(500); outgoing.end(String(failure)); }
   });
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
-  return { url: `http://127.0.0.1:${server.address().port}`, DB, close: async () => { await new Promise(resolve => server.close(resolve)); DB.sqlite.close(); } };
+  return { url: `http://127.0.0.1:${server.address().port}`, DB, close: async () => {
+    // Test after-hooks close this fixture before their polling clients. A live
+    // keep-alive request must not hold teardown open while those clients retry.
+    await new Promise(resolve => { server.close(resolve); server.closeAllConnections(); });
+    DB.sqlite.close();
+  } };
 }
 module.exports = { startRelayFixture };
